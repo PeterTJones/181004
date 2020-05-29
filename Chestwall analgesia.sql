@@ -8,52 +8,15 @@ mortality in patients where analgesia and strong/regional analgesia is delayed, 
 (or expected mortality vs time till analgesia)
 */
 
+
+
 drop table #ribsdataset
 select 
-p.SubmissionID,
-caseID,
-mtc,
-arvdt,
-age,
-sex,
-case 
-	when sex = 'male' then 1
-	else 0
-	end as Male,
-charl,
-ISS,
-issband,
-GCS,
-intubvent,
-msev,
-head,
-face,
-thor,
-abdo,
-spine,
-pelv,
-limb,
-other otherinj,
-case
-	when ps14 is null then ImputePs*100
-	else ps14
-	end as PS_14,
-died,
-los,
-loscc,
-mech,
-mechtype,
-ttype,
-transfertype,
-AISCode,
-SupplementaryCode,
-severity,
-Injuries,
-OperDesc operation,
-case
-	when OperDesc = 'Rib fracture fixation' then 1
-	else 0
-	end as RibFixation,
+p.SubmissionID,caseID,mtc,arvdt,age,sex,case when sex = 'male' then 1 else 0 end as Male,
+charl,ISS,issband,GCS,intubvent,msev,head,face,thor,abdo,spine,pelv,limb,other otherinj,
+case when ps14 is null then ImputePs*100 else ps14 end as PS_14,died,los,loscc,mech,
+mechtype,ttype,transfertype,AISCode,SupplementaryCode,severity,Injuries,OperDesc operation,
+case	when OperDesc = 'Rib fracture fixation' then 1	else 0	end as RibFixation,
 isnull (CAST([ANLG DateTime] AS datetime), '2100-01-01 00:01:00.000') AnlgDT,
 Analgesia,
 case 
@@ -174,7 +137,8 @@ LEFT JOIN (SELECT SubmissionID OpID, SubmissionSectionID SSOpID, DESCRIPTION Ope
 	WHERE  S.QuestionID = 'INTER_PROC_PROC' AND Description = 'RIB FRACTURE FIXATION') OP 
 	ON P.SubmissionID = OP.OpID
 --*****************************************
-where arvd between '20160101' and '20180101'
+where countryid in (1,2)
+arvd between '20170101' and '20200228'
 
 
 select * from #ribsdataset
