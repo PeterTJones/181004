@@ -6,19 +6,39 @@ each analgesia group - median age, ISS, proportion with injuries, rib fractures 
 
 mortality in patients where analgesia and strong/regional analgesia is delayed, time till analgesia vs mortality 
 (or expected mortality vs time till analgesia)
+*/ 
+
+/*
+--Patient inclusion
+select count(distinct caseid) PtCount 
+from pricache p
+inner join (select AISCode, submissionid, severity, supplementarycode
+			from SubmissionCodingView
+			where aiscode between '450201' and '450214'
+			or aiscode = '450804'
+			--or aiscode between '750900' and '750972'
+			) scv
+			on scv.submissionid = p.SubmissionID
+
+where countryid in (1,2)
+and arvd between '20170101' and '20200228'
+and dispatchDate < '20200529'
+and knownoutcome =1
+
 */
-
-
-
 drop table #ribsdataset
 select 
-p.SubmissionID,caseID,mtc,arvdt,age,sex,case when sex = 'male' then 1 else 0 end as Male,
+p.SubmissionID,caseID,countryid, dispatchdate, knownoutcome, mtc,arvdt,age,sex,case when sex = 'male' then 1 else 0 end as Male,
 charl,ISS,issband,GCS,intubvent,msev,head,face,thor,abdo,spine,pelv,limb,other otherinj,
 case when ps14 is null then ImputePs*100 else ps14 end as PS_14,died,los,loscc,mech,
 mechtype,ttype,transfertype,AISCode,SupplementaryCode,severity,Injuries,OperDesc operation,
 case	when OperDesc = 'Rib fracture fixation' then 1	else 0	end as RibFixation,
 isnull (CAST([ANLG DateTime] AS datetime), '2100-01-01 00:01:00.000') AnlgDT,
 Analgesia,
+case 
+	when Analgesia is null and EpiduralAnaesthetic is null then 1 
+	else 0
+ end NoAnalgesia,
 case 
 	when EpiduralAnaesthetic is not null then 1
 	else 0
@@ -129,19 +149,33 @@ LEFT JOIN (SELECT SUBMISSIONID TIMEID,
 				 ON THT.STID = S.SubmissionSectionID
 	
 JOIN Lookup ON ANSWERTEXT = LookupName
-	WHERE  S.QuestionID = 'INTER_ANAL_ANALG' AND LookupTypeID = 'AnalgesiaName' AND CAST([AGDate] + ' ' + LEFT(AGTime,2) + ':' + RIGHT(AGTime, 2) AS DATETIME) IS NOT NULL) ANG
-	ON P.SubmissionID = ANG.AngID
-	AND ANRNK = '1'
+
+WHERE  S.QuestionID = 'INTER_ANAL_ANALG' AND LookupTypeID = 'AnalgesiaName' 
+AND CAST([AGDate] + ' ' + LEFT(AGTime,2) + ':' + RIGHT(AGTime, 2) AS DATETIME) IS NOT NULL
+) ANG ON P.SubmissionID = ANG.AngID 
+
 
 LEFT JOIN (SELECT SubmissionID OpID, SubmissionSectionID SSOpID, DESCRIPTION OperDesc FROM SubmissionSectionView S JOIN Lookup ON ANSWERTEXT = LookupName 
 	WHERE  S.QuestionID = 'INTER_PROC_PROC' AND Description = 'RIB FRACTURE FIXATION') OP 
 	ON P.SubmissionID = OP.OpID
 --*****************************************
 where countryid in (1,2)
-arvd between '20170101' and '20200228'
+and arvd between '20170101' and '20200228'
+and dispatchDate < '20200529'
+and knownoutcome =1
 
 
-select * from #ribsdataset
+
+--select count(distinct caseid)
+--from #ribsdataset
+--where CombAnalgesia = 'N/a'
+
+
+select  count(distinct caseid)
+ from #ribsdataset
+ where Analgesia is null or EpiduralAnaesthetic is null
+
+
 
 --******************************************
 --*****************Analgesia****************
@@ -150,38 +184,39 @@ select * from #ribsdataset
 Drop table #Analgesia
 select distinct
 caseID,
-Intravenousopioid,
-IntravenousParacetamol,
-Entonox,
-Ketamine,
-Epidural,
-Other,
-[N/a]
+max(case when Analgesia is null or EpiduralAnaesthetic is null then 1 else 0 end) NoAnalgesia,
+max(Intravenousopioid)Intravenousopioid,
+max(IntravenousParacetamol) IntravenousParacetamol,
+max(Entonox) Entonox,
+max(Ketamine) Ketamine,
+max(Epidural) Epidural,
+max(Other) Other,
+max([N/a])[N/a]
 into #Analgesia
 from #ribsdataset
-where aiscode not between '750900' and '750972'
+group by caseid
 
  --Totals
 Select
-count(caseID) Total,
+count(distinct caseID) Total,
+sum(NoAnalgesia) NoAnalgesia,
 sum(Intravenousopioid) Intravenousopioid,
 sum(IntravenousParacetamol) IntravenousParacetamol,
 sum(Entonox) Entonox,
 sum(Ketamine) Ketamine,
 sum(Epidural) Epidural,
-sum(Other) Other,
-sum([N/a]) [n/a]
+sum(Other) Other
 from #Analgesia
 
 --Percentages
 Select
+(Round(100*cast(sum(NoAnalgesia)as float)/count(caseID),2)) [NoAnalgesia],
 (Round(100*cast(sum(Intravenousopioid) as float)/count(caseID),2)) [Intravenousopioid%],
 (Round(100*cast(sum(IntravenousParacetamol) as float)/count(caseID), 2)) [IntravenousParacetamol%],
 (Round(100*cast(sum(Entonox)as float)/count(caseID),2)) [Entonox%],
 (Round(100*cast(sum(Ketamine)as float)/count(caseID),2)) [Ketamine%],
 (Round(100*cast(sum(Epidural) as float)/count(caseID),2)) [Epidural%],
-(Round(100*cast(sum(Other) as float)/count(caseID),2)) [Other%],
-(Round(100*cast(sum([N/a]) as float)/count(caseID),2)) [n/a%]
+(Round(100*cast(sum(Other) as float)/count(caseID),2)) [Other%]
 from #Analgesia
 
 /**************************************************************
@@ -208,6 +243,7 @@ max(ribfractures) ribsfractured,
 max(flailchest) Flail,
 max(sternalfracture) Sternumfracture,
 --max(ScapulaFracture) ScapulaFracture,
+max(case when Analgesia is null or EpiduralAnaesthetic is null then 1 else 0 end) NoAnalgesia,
 max(Intravenousopioid) Intravenousopioid,
 max(IntravenousParacetamol) IntravenousParacetamol,
 max(Entonox) Entonox,
@@ -227,6 +263,7 @@ flail,
 sternumfracture,
 ribfixation,
 --ScapulaFracture,
+sum(NoAnalgesia) NoAnalgesia,
 sum(Intravenousopioid) Intravenousopioid,
 sum(IntravenousParacetamol) IntravenousParacetamol,
 sum(Entonox) Entonox,
@@ -248,7 +285,7 @@ from #ribsagg
 
 --LOS Median
 select 
-Ribfixation,
+Flail,
 count(*)n,
 case
 	when elig % 2 = 1 then mediodd
@@ -262,17 +299,17 @@ left join (select medID, count(*)elig,
 					  min(case when hemi = 3 then val else null end)medieven,
 					  min(case when hemi = 2 then val else null end)iqrLwr,
 					  max(case when hemi = 3 then val else null end)iqrUpr
-			   from (select Ribfixation medID, los val,
-							ntile(4) over(partition by Ribfixation order by los)hemi
+			   from (select Flail medID, los val,
+							ntile(4) over(partition by Flail order by los)hemi
 					 from #ribsagg
 					 where LOS is not null)x
 			group by medID) LOSmedian
-			on medid = Ribfixation
-group by Ribfixation, elig, mediodd, medieven, iqrupr, iqrlwr
+			on medid = Flail
+group by Flail, elig, mediodd, medieven, iqrupr, iqrlwr
 
 --LOSCC median *******************************************CHECK THIS*******************************************
 select 
-Ribfixation,
+Flail,
 count(*)n,
 case
 	when elig % 2 = 1 then mediodd
@@ -286,12 +323,12 @@ left join (select medID, count(*)elig,
 					  min(case when hemi = 3 then val else null end)medieven,
 					  min(case when hemi = 2 then val else null end)iqrLwr,
 					  max(case when hemi = 3 then val else null end)iqrUpr
-			   from (select Ribfixation medID, LOScc val,
-							ntile(4) over(partition by Ribfixation order by losCC)hemi
+			   from (select Flail medID, LOScc val,
+							ntile(4) over(partition by Flail order by losCC)hemi
 					 from #ribsagg
 					 where LOScc >0)x
 			group by medID) LOSCCmedian
-			on medid = Ribfixation
+			on medid = Flail
 where LOscc >0
-group by Ribfixation,elig, mediodd, medieven, iqrupr, iqrlwr
+group by Flail,elig, mediodd, medieven, iqrupr, iqrlwr
 
