@@ -24,14 +24,19 @@ where countryid in (1,2)
 and arvd between '20170101' and '20200228'
 and dispatchDate < '20200529'
 and knownoutcome =1
-
 */
+
+
 drop table #ribsdataset
 select 
-p.SubmissionID,caseID,countryid, dispatchdate, knownoutcome, mtc,arvdt,age,sex,case when sex = 'male' then 1 else 0 end as Male,
-charl,ISS,issband,GCS,intubvent,msev,head,face,thor,abdo,spine,pelv,limb,other otherinj,
-case when ps14 is null then ImputePs*100 else ps14 end as PS_14,died,los,loscc,mech,
-mechtype,ttype,transfertype,AISCode,SupplementaryCode,severity,Injuries,OperDesc operation,
+p.SubmissionID,caseID,countryid, dispatchdate,
+knownoutcome, mtc,arvdt,age,sex,
+case when sex = 'male' then 1 else 0 end as Male,
+charl,ISS,issband,GCS,intubvent,msev,head,face,
+thor,abdo,spine,pelv,limb,other otherinj, 
+Ps14, psONS,died,los,loscc,mech,mechtype,ttype,
+transfertype,AISCode,SupplementaryCode,severity,
+Injuries,OperDesc operation,
 case	when OperDesc = 'Rib fracture fixation' then 1	else 0	end as RibFixation,
 isnull (CAST([ANLG DateTime] AS datetime), '2100-01-01 00:01:00.000') AnlgDT,
 Analgesia,
@@ -81,20 +86,9 @@ case
 						'Paravertebral block','Local anaesthetic patches','Methoxyflurane') then 1
 	else 0
 	end as Other,
-case
-	when supplementarycode in ('57','59') or aiscode = '450201' then 1
-	when supplementarycode in  ('58','60','61') or aiscode = '450202' then 2
-	when supplementarycode in ('63','73','83') then 3
-	when supplementarycode in ('64','74','84') then 4
-	when supplementarycode in ('65','75','85') then 5
-	when supplementarycode in ('66','76','86') then 6
-	when supplementarycode in ('67','77','87') then 7
-	when supplementarycode in ('68','78','88') then 8
-	when supplementarycode in ('69','79','89') then 9
-	when supplementarycode in ('70','80','90') then 10
-	when supplementarycode in ('71','81','91') then 11
-	when supplementarycode in ('62','72','82') then NULL
-	end as RibFractures,
+case when supplementarycode in ('62','72','82') then 1 else 0
+	end UnknownNoRibFractures,
+RibFractures,
 case
 	when aiscode between '450209' and '450214' then 1
 	else 0
@@ -111,7 +105,21 @@ case
 into #ribsdataset
 from PRIcache P
 
-inner join (select AISCode, submissionid, severity, supplementarycode
+inner join (select AISCode, submissionid, severity, supplementarycode,
+			sum(case 
+					when supplementarycode in ('57','59') or aiscode = '450201' then 1
+					when supplementarycode in  ('58','60','61') or aiscode = '450202' then 2
+					when supplementarycode in ('63','73','83') then 3
+					when supplementarycode in ('64','74','84') then 4
+					when supplementarycode in ('65','75','85') then 5
+					when supplementarycode in ('66','76','86') then 6
+					when supplementarycode in ('67','77','87') then 7
+					when supplementarycode in ('68','78','88') then 8
+					when supplementarycode in ('69','79','89') then 9
+					when supplementarycode in ('70','80','90') then 10
+					when supplementarycode in ('71','81','91') then 11
+					when supplementarycode in ('62','72','82') then NULL
+				end) over (partition by submissionid) RibFractures
 			from SubmissionCodingView
 			where aiscode between '450201' and '450214'
 			or aiscode = '450804'
@@ -158,6 +166,7 @@ AND CAST([AGDate] + ' ' + LEFT(AGTime,2) + ':' + RIGHT(AGTime, 2) AS DATETIME) I
 LEFT JOIN (SELECT SubmissionID OpID, SubmissionSectionID SSOpID, DESCRIPTION OperDesc FROM SubmissionSectionView S JOIN Lookup ON ANSWERTEXT = LookupName 
 	WHERE  S.QuestionID = 'INTER_PROC_PROC' AND Description = 'RIB FRACTURE FIXATION') OP 
 	ON P.SubmissionID = OP.OpID
+	 
 --*****************************************
 where countryid in (1,2)
 and arvd between '20170101' and '20200228'
@@ -226,36 +235,66 @@ from #Analgesia
 --need to add median LOS
 --median age, ISS, proportion with injuries, rib fractures listed, mortality, LOS median,  male
 
+If object_id('tempdb..#AISbody') is not null
+drop table #AISBody
+select	submissionid AISID,
+		max(case when bodyarea = 1 then severity else 0 end) AISHead,
+		max(case when bodyarea = 2 then severity else 0 end) AISFace,
+		max(case when bodyarea = 3 then severity else 0 end) AISThorax,
+		max(case when bodyarea = 4 then severity else 0 end) AISAbdomen,
+		max(case when bodyarea = 5 then severity else 0 end) AISLimb,
+		max(case when bodyarea = 6 then severity else 0 end) AISExternal
+into #AISbody
+from (		select distinct submissionid, bodyarea, severity,
+			dense_rank() over (partition by submissionid, bodyarea order by severity desc) AISAreaRnk --Ranks all injuries within a body region,
+			from submissioncodingview
+			where submissionid in (select submissionid from #ribsdataset)
+	) A
+where AISAreaRnk =1
+group by submissionid
 
 drop table #ribsagg
 select 
 caseID,
 max(age) age,
 max(male) male,
+max(AISHead)AISHead ,
+max(AISFace)AISFace,
+max(AISThorax)AISThorax,
+max(AISAbdomen)AISAbdomen,
+max(AISLimb) AISLimb,
+max(AISExternal)AISExternal,
 max(iss) ISS,
 min(GCS) GCS,
-avg(PS_14) PS14,
+max(charl) charl,
+max(Ps14) PS14,
+max(psONS) PS_14WithImputation,
 max(died) died,
 sum(los) LOS,
 sum(loscc) LOScc,
-max(ribfixation) Ribfixation,
-max(ribfractures) ribsfractured,
+max(ribfractures) ribfractures,
+max(ribfixation) ribfixation,
 max(flailchest) Flail,
 max(sternalfracture) Sternumfracture,
 --max(ScapulaFracture) ScapulaFracture,
+min(AnlgDT) AnalgesiaDT,
 max(case when Analgesia is null or EpiduralAnaesthetic is null then 1 else 0 end) NoAnalgesia,
 max(Intravenousopioid) Intravenousopioid,
 max(IntravenousParacetamol) IntravenousParacetamol,
 max(Entonox) Entonox,
 max(Ketamine) Ketamine,
 max(Epidural) Epidural,
-max(Other) other,
-max([n/a]) [n/a]
+max(Other) other
 
 into #ribsagg
 from #ribsdataset
+left join #AISbody on AISid = SubmissionID
+left join (select caseid, datediff(minute, min(arvdt) , min(AnlgDT)) TimetoAnalgesia,
+			from #ribsdataset
+			group by caseid)
 group by caseid
 
+select * from #ribsagg
 
 --combined analgesia
 select
@@ -285,12 +324,12 @@ from #ribsagg
 
 --LOS Median
 select 
-Flail,
+RIBfixation,
 count(*)n,
 case
 	when elig % 2 = 1 then mediodd
 	else (mediodd+medieven)/2
-	end mediTT,
+	end mediLOS,
 iqrLwr,
 iqrUpr
 from #ribsagg
@@ -299,17 +338,18 @@ left join (select medID, count(*)elig,
 					  min(case when hemi = 3 then val else null end)medieven,
 					  min(case when hemi = 2 then val else null end)iqrLwr,
 					  max(case when hemi = 3 then val else null end)iqrUpr
-			   from (select Flail medID, los val,
-							ntile(4) over(partition by Flail order by los)hemi
+			   from (select RIBfixation medID, los val,
+							ntile(4) over(partition by RIBfixation order by los)hemi
 					 from #ribsagg
 					 where LOS is not null)x
 			group by medID) LOSmedian
-			on medid = Flail
-group by Flail, elig, mediodd, medieven, iqrupr, iqrlwr
+			on medid = RIBfixation
+group by RIBfixation, elig, mediodd, medieven, iqrupr, iqrlwr
+order by 1 asc
 
---LOSCC median *******************************************CHECK THIS*******************************************
-select 
-Flail,
+--LOSCC median select 
+select
+Ribfixation,
 count(*)n,
 case
 	when elig % 2 = 1 then mediodd
@@ -323,12 +363,18 @@ left join (select medID, count(*)elig,
 					  min(case when hemi = 3 then val else null end)medieven,
 					  min(case when hemi = 2 then val else null end)iqrLwr,
 					  max(case when hemi = 3 then val else null end)iqrUpr
-			   from (select Flail medID, LOScc val,
-							ntile(4) over(partition by Flail order by losCC)hemi
+			   from (select RIBfixation medID, LOScc val,
+							ntile(4) over(partition by RIBfixation order by losCC)hemi
 					 from #ribsagg
 					 where LOScc >0)x
 			group by medID) LOSCCmedian
-			on medid = Flail
+			on medid = RIBfixation
 where LOscc >0
-group by Flail,elig, mediodd, medieven, iqrupr, iqrlwr
+group by RIBfixation,elig, mediodd, medieven, iqrupr, iqrlwr
+order by 1 asc
+
+--*********************************************************
+--*********************************************************
+--*********************************************************
+
 
