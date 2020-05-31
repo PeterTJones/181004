@@ -36,8 +36,9 @@ charl,ISS,issband,GCS,intubvent,msev,head,face,
 thor,abdo,spine,pelv,limb,other otherinj, 
 Ps14, psONS,died,los,loscc,mech,mechtype,ttype,
 transfertype,AISCode,SupplementaryCode,severity,
-Injuries,OperDesc operation,
+Injuries,OperDesc operation, OpDT,
 case	when OperDesc = 'Rib fracture fixation' then 1	else 0	end as RibFixation,
+AnalgesiaLoc,
 isnull (CAST([ANLG DateTime] AS datetime), '2100-01-01 00:01:00.000') AnlgDT,
 Analgesia,
 case 
@@ -136,37 +137,54 @@ left join (select submissionID, QuestionID, Description EpiduralAnaesthetic from
 --***************Maydul's ChestWall Report code ************
 LEFT JOIN (SELECT SubmissionID AngID, CAST([AGDate] + ' ' + LEFT(AGTime,2) + ':' + RIGHT(AGTime, 2) AS DATETIME) AS [ANLG DateTime], 
 			ROW_NUMBER () OVER (PARTITION BY SUBMISSIONID ORDER BY CAST([AGDate] + ' ' + LEFT(AGTime,2) + ':' + RIGHT(AGTime, 2) AS DATETIME)) ANRNK,
-			Description Analgesia FROM SubmissionSectionView S 
+			Description Analgesia, loc AnalgesiaLoc
+		FROM SubmissionSectionExtView S 
 
-LEFT JOIN (SELECT SUBMISSIONID DATEID,
-				SubmissionSectionID SDID,
-				QUESTIONID,
-				AnswerText AGDate
-				FROM SubmissionSectionView 
-				WHERE QuestionID = 'INTER_DATE_ANAL' 
-				AND AnswerText LIKE '[12][0-9][0-9][0-9][01][0-9][0-3][0-9]') THD
-				ON THD.SDID = S.SubmissionSectionID
+		LEFT JOIN (SELECT SUBMISSIONID DATEID,
+						SubmissionSectionID SDID,
+						QUESTIONID,
+						AnswerText AGDate
+						FROM SubmissionSectionView 
+						WHERE QuestionID = 'INTER_DATE_ANAL' 
+						AND AnswerText LIKE '[12][0-9][0-9][0-9][01][0-9][0-3][0-9]') THD
+						ON THD.SDID = S.SubmissionSectionID
 
-LEFT JOIN (SELECT SUBMISSIONID TIMEID,
-				 SubmissionSectionID STID,
-				 QUESTIONID,
-				 AnswerText AGTime 
-				 FROM SubmissionSectionView
-				 WHERE QuestionID = 'INTER_TIME_ANAL'
-				 AND AnswerText LIKE '[012][0-9][0-5][0-9]') THT
-				 ON THT.STID = S.SubmissionSectionID
+		LEFT JOIN (SELECT SUBMISSIONID TIMEID,
+						 SubmissionSectionID STID,
+						 QUESTIONID,
+						 AnswerText AGTime 
+						 FROM SubmissionSectionView
+						 WHERE QuestionID = 'INTER_TIME_ANAL'
+						 AND AnswerText LIKE '[012][0-9][0-5][0-9]') THT
+						 ON THT.STID = S.SubmissionSectionID
 	
-JOIN Lookup ON ANSWERTEXT = LookupName
+		JOIN Lookup ON ANSWERTEXT = LookupName
 
-WHERE  S.QuestionID = 'INTER_ANAL_ANALG' AND LookupTypeID = 'AnalgesiaName' 
-AND CAST([AGDate] + ' ' + LEFT(AGTime,2) + ':' + RIGHT(AGTime, 2) AS DATETIME) IS NOT NULL
+		WHERE  S.QuestionID = 'INTER_ANAL_ANALG' AND LookupTypeID = 'AnalgesiaName' 
+		AND CAST([AGDate] + ' ' + LEFT(AGTime,2) + ':' + RIGHT(AGTime, 2) AS DATETIME) IS NOT NULL
 ) ANG ON P.SubmissionID = ANG.AngID 
 
 
-LEFT JOIN (SELECT SubmissionID OpID, SubmissionSectionID SSOpID, DESCRIPTION OperDesc FROM SubmissionSectionView S JOIN Lookup ON ANSWERTEXT = LookupName 
-	WHERE  S.QuestionID = 'INTER_PROC_PROC' AND Description = 'RIB FRACTURE FIXATION') OP 
-	ON P.SubmissionID = OP.OpID
+LEFT JOIN (SELECT S.SubmissionID OpID, S.SubmissionSectionID SSOpID, DESCRIPTION OperDesc, OpDT
+			FROM SubmissionSectionView S
+			left join(select Date.submissionid, date.submissionsectionid,
+							 cast([answertext] + ' ' + LEFT(Optime,2) + ':' + RIGHT(OpTime, 2) as datetime) OpDT
+						from SubmissionSectionExtView Date
+						inner join(	select submissionid, submissionsectionid, answertext OpTime
+									from SubmissionSectionExtView
+									where QuestionID = 'INTER_TIME'
+									and AnswerText LIKE '[012][0-9][0-5][0-9]'
+								) tme on tme.SubmissionSectionID = date.SubmissionSectionID and tme.SubmissionID = date.SubmissionID
+						where questionid = 'Inter_date'
+						and AnswerText LIKE '[12][0-9][0-9][0-9][01][0-9][0-3][0-9]'
+					) OpDT on OpDT.SubmissionSectionID = S.SubmissionSectionID and OPDT.SubmissionID = S.SubmissionID
+			inner join (select * from Lookup 
+						where LookupTypeID = 'OperativeProcedure'
+					)Lk ON ANSWERTEXT = LookupName 
+			WHERE  S.QuestionID = 'INTER_PROC_PROC' AND Description = 'RIB FRACTURE FIXATION'
+	) OP ON P.SubmissionID = OP.OpID
 	 
+	
 --*****************************************
 where countryid in (1,2)
 and arvd between '20170101' and '20200228'
@@ -253,9 +271,11 @@ from (		select distinct submissionid, bodyarea, severity,
 where AISAreaRnk =1
 group by submissionid
 
+
+
 drop table #ribsagg
 select 
-caseID,
+#ribsdataset.caseID,
 max(age) age,
 max(male) male,
 max(AISHead)AISHead ,
@@ -272,12 +292,17 @@ max(psONS) PS_14WithImputation,
 max(died) died,
 sum(los) LOS,
 sum(loscc) LOScc,
-max(ribfractures) ribfractures,
-max(ribfixation) ribfixation,
 max(flailchest) Flail,
 max(sternalfracture) Sternumfracture,
+max(UnknownNoRibFractures) UnknownNoRibFractures,
+max(ribfractures) ribfractures,
+max(ribfixation) ribfixation,
+min(TimetoRibFixation) TimetoRibFixation,
 --max(ScapulaFracture) ScapulaFracture,
-min(AnlgDT) AnalgesiaDT,
+max(case when analgesialoc in('At Scene','Enroute') then 1 else 0 end) AnalgesiaPrehospital, 
+min(case when TimetoAnalgesia >'40000000' then Null
+	when TimetoAnalgesia < 0 then Null --Prevents negative values (not anomalous, just pre hosp ones)
+	 else TimetoAnalgesia end) TimetoAnalgesia, -- this removes earlier Null values from calculation
 max(case when Analgesia is null or EpiduralAnaesthetic is null then 1 else 0 end) NoAnalgesia,
 max(Intravenousopioid) Intravenousopioid,
 max(IntravenousParacetamol) IntravenousParacetamol,
@@ -289,12 +314,17 @@ max(Other) other
 into #ribsagg
 from #ribsdataset
 left join #AISbody on AISid = SubmissionID
-left join (select caseid, datediff(minute, min(arvdt) , min(AnlgDT)) TimetoAnalgesia,
+left join (select caseid, 
+			datediff(minute, min(arvdt) , min(AnlgDT)) TimetoAnalgesia,
+			datediff(minute, min(arvdt), min(opdt))TimetoRibFixation
 			from #ribsdataset
-			group by caseid)
-group by caseid
+			group by caseid
+		) Timeto on Timeto.caseid = #ribsdataset.caseid
+group by #ribsdataset.caseid
 
 select * from #ribsagg
+
+
 
 --combined analgesia
 select
@@ -308,8 +338,7 @@ sum(IntravenousParacetamol) IntravenousParacetamol,
 sum(Entonox) Entonox,
 sum(Ketamine) Ketamine,
 sum(Epidural) Epidural,
-sum(Other) other,
-sum([n/a]) [n/a]
+sum(Other) Other
 from #ribsagg
 group by Flail, ribfixation, sternumfracture --,ScapulaFracture
 
