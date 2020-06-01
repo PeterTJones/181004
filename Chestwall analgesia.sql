@@ -226,14 +226,14 @@ LEFT JOIN (SELECT S.SubmissionID OpID, S.SubmissionSectionID SSOpID, DESCRIPTION
 
 left join(	select distinct submissionid, 
 			stuff((select ', ' + t.[description]
-       				from #breathsupp t
+       				from (select distinct submissionid, [description] from #breathsupp) t
        				where t.SubmissionID = #breathsupp.SubmissionID
 					and loc = 'Pre-Hospital'
 					order by t.[Description]
        				for xml path('')
  				),1,1,'') as PrehospBreathSupp,
 			stuff((select ', ' + t.[description]
-       				from #breathsupp t
+       				from (select distinct submissionid, [description] from #breathsupp) t
        				where t.SubmissionID = #breathsupp.SubmissionID
 					and loc != 'Pre-Hospital'
 					order by t.[Description]
@@ -243,14 +243,14 @@ left join(	select distinct submissionid,
 	) Bsu on Bsu.SubmissionID = p.SubmissionID
 left join(	select distinct submissionid, 
 			stuff((select ', ' + t.[description]
-       				from #AirSupp t
+       				from (select distinct submissionid, [description] from #AirSupp) t
        				where t.SubmissionID = #AirSupp.SubmissionID
 					and loc = 'Pre-Hospital'
 					order by t.[Description]
        				for xml path('')
  				),1,1,'') as PrehospAirwaySupp,
 			stuff((select ', ' + t.[description]
-       				from #AirSupp t
+       				from (select distinct submissionid, [description] from #AirSupp) t
        				where t.SubmissionID = #AirSupp.SubmissionID
 					and loc != 'Pre-Hospital'
 					order by t.[Description]
@@ -260,14 +260,14 @@ left join(	select distinct submissionid,
 		)AwSu on AwSu.SubmissionID = p.SubmissionID
 left join(	select distinct submissionid, 
 			stuff((select ', ' + t.[description]
-       				from #AirStatus t
+       				from (select distinct submissionid, [description] from #Airstatus) t
        				where t.SubmissionID = #AirStatus.SubmissionID
 					and loc = 'Pre-Hospital'
 					order by t.[Description]
        				for xml path('')
  				),1,1,'') as PrehospAirwayStatus,
 			stuff((select ', ' + t.[description]
-       				from #AirStatus t
+       				from (select distinct submissionid, [description] from #Airstatus) t
        				where t.SubmissionID = #AirStatus.SubmissionID
 					and loc != 'Pre-Hospital'
 					order by t.[Description]
@@ -277,14 +277,14 @@ left join(	select distinct submissionid,
 		)AwSt on AwSt.SubmissionID = p.SubmissionID
 left join(	select distinct submissionid, 
 			stuff((select ', ' + t.[description]
-       				from #BreathStatus t
+       				from (select distinct submissionid, [description] from #BreathStatus) t
        				where t.SubmissionID = #BreathStatus.SubmissionID
 					and loc = 'Pre-Hospital'
 					order by t.[Description]
        				for xml path('')
  				),1,1,'') as PrehospBreathStatus,
 			stuff((select ', ' + t.[description]
-       				from #BreathStatus t
+       				from (select distinct submissionid, [description] from #Breathstatus) t
        				where t.SubmissionID = #BreathStatus.SubmissionID
 					and loc != 'Pre-Hospital'
 					order by t.[Description]
@@ -384,8 +384,8 @@ If object_ID('tempdb..#ribsagg') is not null
 drop table #ribsagg
 select 
 #ribsdataset.caseID,
-max(age) age,
-max(male) male,
+max(age) Age,
+max(male) Male,
 max(AISHead)AISHead ,
 max(AISFace)AISFace,
 max(AISThorax)AISThorax,
@@ -394,20 +394,20 @@ max(AISLimb) AISLimb,
 max(AISExternal)AISExternal,
 max(iss) ISS,
 min(GCS) GCS,
-max(intubvent)intubvent,
-max(intubloc)intubloc,
+max(intubvent)IntubVent,
+max(intubloc) IntubLoc,
 min(case when Timetointub <0 then 0 else TimetoIntub end) TimetoIntub,
-max(charl) charl,
-max(Ps14) PS14,
-max(psONS) PS_14WithImputation,
-max(died) died,
+max(charl) Charl,
+max(Ps14) PS,
+max(psONS) PSWithImputation,
+max(died) Died,
 sum(los) LOS,
 sum(loscc) LOScc,
 max(flailchest) Flail,
 max(sternalfracture) Sternumfracture,
 max(UnknownNoRibFractures) UnknownNoRibFractures,
-max(ribfractures) ribfractures,
-max(ribfixation) ribfixation,
+max(ribfractures) Ribfractures,
+max(ribfixation) Ribfixation,
 min(TimetoRibFixation) TimetoRibFixation,
 --max(ScapulaFracture) ScapulaFracture,
 max(case when analgesialoc in('At Scene','Enroute') then 1 else 0 end) AnalgesiaPrehospital, 
@@ -415,18 +415,44 @@ min(case when TimetoAnalgesia >'40000000' then Null
 	when TimetoAnalgesia < 0 then Null --Prevents negative values (not anomalous, just pre hosp ones)
 	 else TimetoAnalgesia end) TimetoAnalgesia, -- this removes earlier Null values from calculation
 max(case when Analgesia is null or EpiduralAnaesthetic is null then 1 else 0 end) NoAnalgesia,
-max(Intravenousopioid) Intravenousopioid,
+max(Intravenousopioid) IntravenousOpioid,
 max(IntravenousParacetamol) IntravenousParacetamol,
 max(Entonox) Entonox,
 max(Ketamine) Ketamine,
 max(Epidural) Epidural,
-max(Other) other,
-max(PHBST) PrehospBreathStatus, max(PHBS) PrehospBreathSupp,max(PHAST) PrehospAirwayStatus, max(PHAS)PrehospAirwaySupp,
+max(Other) Other,
+max(case when crank =1 then PrehospBreathStatus else NULL end) PrehospBreathStatus,
+max(case when crank =1 then PrehospBreathSupp else NULL end) PrehospBreathSupp,
+max(case when crank =1 then PrehospAirwayStatus else NULL end) PrehospAirwayStatus,
+max(case when crank =1 then PrehospAirwaySupp else NULL end) PrehospAirwaySupp,
 max(case when crank =1 then HospBreathStatus else NULL end) HospOneBreathStatus,
 max(case when crank =1 then HospBreathSupp else NULL end) HospOneBreathSupp,
 max(case when crank =1 then HospAirwayStatus else NULL end) HospOneAirwayStatus,
 max(case when crank =1 then HospAirwaySupp else NULL end) HospOneAirwaySupp,
-max(H2Bst) HospTwoBreathStatus,max(H2BS) HospTwoBreathSupp, max(H2ASt) HospTwoAirwayStatus, max(H2AS) HospTwoAirwaySupp 
+stuff((select distinct ', ' + t.[HospBreathStatus] from #ribsdataset t
+       	where t.caseid = #ribsdataset.caseid
+		and crank > 1
+		order by ', ' + t.[HospBreathStatus]
+       	for xml path('')
+ 	),1,1,'') as  HospTwoBreathStatus,
+stuff((select distinct ', ' + t.[HospBreathSupp] from #ribsdataset t
+       	where t.caseid = #ribsdataset.caseid
+		and crank > 1
+		order by ', ' + t.[HospBreathSupp]
+       	for xml path('')
+ 	),1,1,'') as  HospTwoBreathSupp,
+stuff((select distinct ', ' + t.[HospAirwayStatus] from #ribsdataset t
+       	where t.caseid = #ribsdataset.caseid
+		and crank > 1
+		order by ', '+ t.[HospAirwayStatus]
+       	for xml path('')
+ 	),1,1,'') as   HospTwoAirwayStatus, 
+stuff((select distinct ', ' + t.[HospAirwaySupp] from #ribsdataset t
+       	where t.caseid = #ribsdataset.caseid
+		and crank > 1
+		order by ', ' + t.[HospAirwaySupp]
+       	for xml path('')
+ 	),1,1,'') as  HospTwoAirwaySupp
 
 into #ribsagg
 from #ribsdataset
@@ -438,41 +464,6 @@ left join(	select caseid,
 			from #ribsdataset
 			group by caseid
 		) Timeto on Timeto.caseid = #ribsdataset.caseid
-left join(	select submissionid, PrehospBreathSupp PHBS,PrehospAirwaySupp PHAS, PrehospBreathStatus PHBSt, prehospAirwayStatus PHASt
-			from #ribsdataset
-			where crank =1 
-		)  PH on Ph.SubmissionID = #ribsdataset.SubmissionID
-left join(	select submissionid,   
-			stuff((select ', ' + t.[HospBreathSupp]
-       				from #ribsdataset t
-       				where t.caseid = #ribsdataset.caseid
-					and crank > 1
-					order by t.[HospBreathSupp]
-       				for xml path('')
- 				),1,1,'') as  H2BS,
-			stuff((select ', ' + t.[HospAirwaySupp]
-       				from #ribsdataset t
-       				where t.caseid = #ribsdataset.caseid
-					and crank > 1
-					order by t.[HospAirwaySupp]
-       				for xml path('')
- 				),1,1,'') as  H2AS,
-			stuff((select ', ' + t.[HospBreathStatus]
-       				from #ribsdataset t
-       				where t.caseid = #ribsdataset.caseid
-					and crank > 1
-					order by t.[HospBreathStatus]
-       				for xml path('')
- 				),1,1,'') as  H2Bst, 
-			stuff((select ', ' + t.[HospAirwayStatus]
-       				from #ribsdataset t
-       				where t.caseid = #ribsdataset.caseid
-					and crank > 1
-					order by t.[HospAirwayStatus]
-       				for xml path('')
- 				),1,1,'') as   H2ASt
-			from #ribsdataset
-		)	H2 on H2.SubmissionID = #ribsdataset.SubmissionID
 group by #ribsdataset.caseid
 
 select * from #ribsagg
