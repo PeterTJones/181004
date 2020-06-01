@@ -20,9 +20,7 @@ inner join (select AISCode, submissionid, severity, supplementarycode
 			from SubmissionCodingView
 			where aiscode between '450201' and '450214'
 			or aiscode = '450804'
-			or aiscode between '750900' and '750972'
-			) scv
-			on scv.submissionid = p.SubmissionID
+		) scv on scv.submissionid = p.SubmissionID
 
 where countryid in (1,2)
 and dispatchDate < '20200529'
@@ -34,7 +32,7 @@ and knownoutcome =1
 --*********************************************************
 
 If object_ID('tempdb..#Breathsupp') is not null
-drop table ##Breathsupp
+drop table #Breathsupp
 select SubmissionID, description, case when loc in ('At Scene', 'Enroute') then 'Pre-Hospital' else loc end Loc
 into #breathsupp
 from submissionsectionextview
@@ -162,9 +160,7 @@ left join (select AISCode, submissionid, severity, supplementarycode,
 			from SubmissionCodingView
 			where aiscode between '450201' and '450214'
 			or aiscode = '450804'
-			--or aiscode between '750900' and '750972'
-			) scv
-			on scv.submissionid = p.SubmissionID
+		) scv on scv.submissionid = p.SubmissionID
 
 left join (select submissionID, QuestionID, Description EpiduralAnaesthetic from submissionsectionview s
 			left join lookup on AnswerText = LookupName
@@ -385,7 +381,7 @@ drop table #ribsagg
 select 
 #ribsdataset.caseID,
 max(age) Age,
-max(male) Male,
+max(case when male =1 then 'Male' when male = 0 then 'Female' end) Sex,
 max(AISHead)AISHead ,
 max(AISFace)AISFace,
 max(AISThorax)AISThorax,
@@ -394,7 +390,7 @@ max(AISLimb) AISLimb,
 max(AISExternal)AISExternal,
 max(iss) ISS,
 min(GCS) GCS,
-max(intubvent)IntubVent,
+max(isnull(intubvent,0))IntubVent,
 max(intubloc) IntubLoc,
 max(case when Timetointub <0 then NULL else TimetoIntub end) TimetoIntub,
 max(charl) Charl,
@@ -464,9 +460,11 @@ left join(	select caseid,
 			from #ribsdataset
 			group by caseid
 		) Timeto on Timeto.caseid = #ribsdataset.caseid
+
 group by #ribsdataset.caseid
 
 select * from #ribsagg
+
 
 /***********************************************************************
  ****************************Analysis tables****************************
