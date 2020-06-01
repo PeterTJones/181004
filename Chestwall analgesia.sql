@@ -85,9 +85,9 @@ If object_ID('tempdb..#ribsdataset') is not null
 drop table #ribsdataset
 select 
 p.SubmissionID,caseID,countryid, dispatchdate, crank,
-knownoutcome, mtc,arvdt,age,sex,
+knownoutcome, mtc,arvdt,age,sex,mech,mechtype,
 case when sex = 'male' then 1 else 0 end as Male,
-charl,ISS,issband,GCS,intubvent,Ps14, psONS,died,los,loscc,mech,mechtype,
+charl,ISS,issband,GCS,intubvent, intubloc, intubdt, Ps14, psONS,died,los,loscc,
 ttype, transfertype, Injuries,OperDesc operation, OpDT,
 HospBreathSupp, HospAirwaySupp, HospBreathStatus, HospAirwayStatus,
 PrehospBreathSupp,PrehospAirwaySupp, PrehospBreathStatus, prehospAirwayStatus, 
@@ -394,6 +394,9 @@ max(AISLimb) AISLimb,
 max(AISExternal)AISExternal,
 max(iss) ISS,
 min(GCS) GCS,
+max(intubvent)intubvent,
+max(intubloc)intubloc,
+min(case when Timetointub <0 then 0 else TimetoIntub end) TimetoIntub,
 max(charl) charl,
 max(Ps14) PS14,
 max(psONS) PS_14WithImputation,
@@ -418,17 +421,20 @@ max(Entonox) Entonox,
 max(Ketamine) Ketamine,
 max(Epidural) Epidural,
 max(Other) other,
-max(PHBS) PrehospBreathSupp, max(PHAS)PrehospAirwaySupp,
-max(PHBST) PrehospBreathStatus,max(PHAST) PrehospAirwayStatus,
-max(HospBreathSupp) HospBreathSupp, max(HospAirwaySupp) HospAirwaySupp,
-max(HospBreathStatus) HospBreathStatus, max(HospAirwayStatus) HospAirwayStatus
+max(PHBST) PrehospBreathStatus, max(PHBS) PrehospBreathSupp,max(PHAST) PrehospAirwayStatus, max(PHAS)PrehospAirwaySupp,
+max(case when crank =1 then HospBreathStatus else NULL end) HospOneBreathStatus,
+max(case when crank =1 then HospBreathSupp else NULL end) HospOneBreathSupp,
+max(case when crank =1 then HospAirwayStatus else NULL end) HospOneAirwayStatus,
+max(case when crank =1 then HospAirwaySupp else NULL end) HospOneAirwaySupp,
+max(H2Bst) HospTwoBreathStatus,max(H2BS) HospTwoBreathSupp, max(H2ASt) HospTwoAirwayStatus, max(H2AS) HospTwoAirwaySupp 
 
 into #ribsagg
 from #ribsdataset
 left join #AISbody on AISid = SubmissionID
 left join(	select caseid, 
 			datediff(minute, min(arvdt) , min(AnlgDT)) TimetoAnalgesia,
-			datediff(minute, min(arvdt), min(opdt))TimetoRibFixation
+			datediff(minute, min(arvdt), min(opdt))TimetoRibFixation,
+			datediff(minute, min(arvdt), min(intubdt)) TimetoIntub
 			from #ribsdataset
 			group by caseid
 		) Timeto on Timeto.caseid = #ribsdataset.caseid
@@ -436,13 +442,44 @@ left join(	select submissionid, PrehospBreathSupp PHBS,PrehospAirwaySupp PHAS, P
 			from #ribsdataset
 			where crank =1 
 		)  PH on Ph.SubmissionID = #ribsdataset.SubmissionID
+left join(	select submissionid,   
+			stuff((select ', ' + t.[HospBreathSupp]
+       				from #ribsdataset t
+       				where t.caseid = #ribsdataset.caseid
+					and crank > 1
+					order by t.[HospBreathSupp]
+       				for xml path('')
+ 				),1,1,'') as  H2BS,
+			stuff((select ', ' + t.[HospAirwaySupp]
+       				from #ribsdataset t
+       				where t.caseid = #ribsdataset.caseid
+					and crank > 1
+					order by t.[HospAirwaySupp]
+       				for xml path('')
+ 				),1,1,'') as  H2AS,
+			stuff((select ', ' + t.[HospBreathStatus]
+       				from #ribsdataset t
+       				where t.caseid = #ribsdataset.caseid
+					and crank > 1
+					order by t.[HospBreathStatus]
+       				for xml path('')
+ 				),1,1,'') as  H2Bst, 
+			stuff((select ', ' + t.[HospAirwayStatus]
+       				from #ribsdataset t
+       				where t.caseid = #ribsdataset.caseid
+					and crank > 1
+					order by t.[HospAirwayStatus]
+       				for xml path('')
+ 				),1,1,'') as   H2ASt
+			from #ribsdataset
+		)	H2 on H2.SubmissionID = #ribsdataset.SubmissionID
 group by #ribsdataset.caseid
 
 select * from #ribsagg
 
-/************************************************
-*****************Analysis tables*****************
-************************************************/
+/***********************************************************************
+ ****************************Analysis tables****************************
+ ***********************************************************************/
 
 --combined analgesia
 select
